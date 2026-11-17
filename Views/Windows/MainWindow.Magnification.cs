@@ -8,6 +8,8 @@ namespace OpenTaskbar;
 
 public partial class MainWindow
 {
+    private readonly HashSet<FrameworkElement> _currentMagnifiedBuffer = [];
+
     internal static (ScaleTransform Scale, TranslateTransform Translate) GetIconTransforms(FrameworkElement icon)
     {
         if (icon.RenderTransform is TransformGroup { IsFrozen: false, IsSealed: false } group)
@@ -101,7 +103,8 @@ public partial class MainWindow
         const double influenceRadius = DockMetrics.InfluenceRadius;
         const double maxScale = DockMetrics.HoverScale;
 
-        var currentMagnified = new HashSet<FrameworkElement>();
+        _currentMagnifiedBuffer.Clear();
+        var currentMagnified = _currentMagnifiedBuffer;
 
         foreach (var button in GetAllDockButtons())
         {

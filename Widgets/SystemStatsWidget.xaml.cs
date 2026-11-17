@@ -22,7 +22,7 @@ public partial class SystemStatsWidget : DockWidget
     {
         _tick = 0;
         _stats.SampleCpu();
-        _sensors = new SystemSensors();
+        _sensors = new SystemSensors(Settings.StatsMeters);
         ApplyMeterSelection();
     }
 
@@ -36,6 +36,7 @@ public partial class SystemStatsWidget : DockWidget
     {
         // Sample immediately so a re-enabled meter does not wait for the next 2 s cycle.
         _tick = 0;
+        _sensors?.Configure(Settings.StatsMeters);
         ApplyMeterSelection();
     }
 
@@ -96,7 +97,12 @@ public partial class SystemStatsWidget : DockWidget
     {
         ring.Value = value;
         ring.Text = shown.ToString(CultureInfo.InvariantCulture);
-        ring.SetResourceReference(RingMeter.ValueBrushProperty, value >= 0.9 ? "WidgetFocusAccent" : value >= 0.75 ? "WidgetWarning" : "WidgetAccent");
+        var brushKey = value >= 0.9 ? "WidgetFocusAccent" : value >= 0.75 ? "WidgetWarning" : "WidgetAccent";
+        if (!Equals(ring.Tag, brushKey))
+        {
+            ring.Tag = brushKey;
+            ring.SetResourceReference(RingMeter.ValueBrushProperty, brushKey);
+        }
         owner.ToolTip = tooltip;
     }
 

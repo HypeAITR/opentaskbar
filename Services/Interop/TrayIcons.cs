@@ -125,15 +125,34 @@ public static class TrayIcons
         try
         {
             using var stream = new MemoryStream(png);
-            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-            var frame = decoder.Frames[0];
-            frame.Freeze();
-            return frame;
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            // Cap oversized PNG snapshots at 32px (rendered at 20 DIP) without upscaling smaller icons.
+            if (TryReadPngWidth(png, out var width) && width > 32)
+            {
+                bitmap.DecodePixelWidth = 32;
+            }
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
         }
         catch (Exception ex) when (ex is NotSupportedException or FileFormatException or ArgumentException)
         {
             return null;
         }
+    }
+
+    private static bool TryReadPngWidth(ReadOnlySpan<byte> bytes, out int width)
+    {
+        width = 0;
+        // PNG signature (8) + IHDR length (4) + "IHDR" (4) + width (4)
+        if (bytes.Length < 24 || bytes[0] != 0x89 || bytes[1] != 0x50 || bytes[2] != 0x4E || bytes[3] != 0x47)
+            return false;
+        width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(bytes.Slice(16, 4));
+        return width > 0;
     }
 
     [DllImport("shell32.dll")]

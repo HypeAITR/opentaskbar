@@ -99,12 +99,12 @@ public sealed class LauncherWindow : Window
         frame.SetResourceReference(Border.BorderBrushProperty, "MenuStroke");
         frame.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimary");
         Content = frame;
-        Deactivated += (_, _) => Hide();
+        Deactivated += (_, _) => Dismiss();
         PreviewKeyDown += (_, args) =>
         {
             if (args.Key != Key.Escape) return;
             args.Handled = true;
-            Hide();
+            Dismiss();
         };
         UiText.Current.PropertyChanged += (_, _) => _hint.Text = UiText.Get("LauncherPlaceholder");
         _hint.Text = UiText.Get("LauncherPlaceholder");
@@ -124,7 +124,7 @@ public sealed class LauncherWindow : Window
     {
         if (IsVisible)
         {
-            Hide();
+            Dismiss();
             return;
         }
 
@@ -138,6 +138,15 @@ public sealed class LauncherWindow : Window
         _query.Focus();
         Keyboard.Focus(_query);
         _ = RefreshCatalogAsync();
+    }
+
+    private void Dismiss()
+    {
+        Hide();
+        _results.ItemsSource = null;
+        if (_icons.Count > 24) _icons.Clear();
+        Catalog.ClearCache();
+        MemoryTrimmer.ScheduleTrim(Dispatcher, 1000);
     }
 
     private async Task RefreshCatalogAsync()
@@ -266,7 +275,7 @@ public sealed class LauncherWindow : Window
     {
         var entry = selected as LauncherEntry ?? (selected as ListBoxItem)?.Tag as LauncherEntry;
         if (entry is null) return;
-        Hide();
+        Dismiss();
         if (LauncherCatalog.Launch(entry) is { } error) _reportError(error);
     }
 

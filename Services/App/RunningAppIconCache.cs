@@ -28,8 +28,8 @@ public sealed class RunningAppIconCache
         : this(
             Guard<string, BitmapSource>(path => ApplicationIconProvider.GetForResource(path, 0)),
             Guard<nint, string>(window => NativeJumpListSession.ReadWindowAppId(window) ?? NativeWindowTracker.GetPackagedAppId(window)),
-            Guard<string, BitmapSource>(appId => ApplicationIconProvider.GetForShellItem(@"shell:AppsFolder\" + appId, 128, iconOnly: true)),
-            Guard<string, BitmapSource>(ApplicationIconProvider.GetForFile),
+            Guard<string, BitmapSource>(appId => ApplicationIconProvider.GetForShellItem(@"shell:AppsFolder\" + appId, ApplicationIconProvider.PreferredIconPixels, iconOnly: true)),
+            Guard<string, BitmapSource>(path => ApplicationIconProvider.GetForFile(path)),
             TimeProvider.System)
     {
     }

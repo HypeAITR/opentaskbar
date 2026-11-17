@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace OpenTaskbar.Services;
 
 /// <summary>
-/// A wildcard Windows performance counter (for example <c>\GPU Engine(*)\Utilization Percentage</c>) read through PDH.
+/// A wildcard Windows performance counter (for example <c>\Thermal Zone Information(*)\Temperature</c>) read through PDH.
 /// Rate counters need two collections, so the first read after creation returns no values.
 /// </summary>
 internal sealed class PdhCounterArray : IDisposable
@@ -15,6 +15,9 @@ internal sealed class PdhCounterArray : IDisposable
 
     private readonly nint _query;
     private readonly nint _counter;
+    private nint _buffer;
+    private uint _bufferCapacity;
+    private bool _disposed;
 
     private PdhCounterArray(nint query, nint counter)
     {
@@ -38,31 +41,76 @@ internal sealed class PdhCounterArray : IDisposable
     /// <summary>Collects a sample; returns null when no valid values are available yet.</summary>
     public IReadOnlyList<(string Instance, double Value)>? Read()
     {
-        if (PdhCollectQueryData(_query) != 0) return null;
-        uint size = 0;
-        if (PdhGetFormattedCounterArrayW(_counter, FormatDouble, ref size, out _, 0) != MoreData || size == 0) return null;
-        var buffer = Marshal.AllocHGlobal((nint)size);
-        try
+        if (!TryCollectItems(out var count)) return null;
+        var values = new List<(string, double)>((int)count);
+        var itemSize = Marshal.SizeOf<FormattedItem>();
+        for (var index = 0; index < count; index++)
         {
-            if (PdhGetFormattedCounterArrayW(_counter, FormatDouble, ref size, out var count, buffer) != 0) return null;
-            var values = new List<(string, double)>((int)count);
-            var itemSize = Marshal.SizeOf<FormattedItem>();
-            for (var index = 0; index < count; index++)
-            {
-                var item = Marshal.PtrToStructure<FormattedItem>(buffer + index * itemSize);
-                if (item.Status is not (ValidData or NewData) || Marshal.PtrToStringUni(item.Name) is not { } name) continue;
-                values.Add((name, item.Value));
-            }
+            var item = Marshal.PtrToStructure<FormattedItem>(_buffer + index * itemSize);
+            if (item.Status is not (ValidData or NewData) || Marshal.PtrToStringUni(item.Name) is not { } name) continue;
+            values.Add((name, item.Value));
+        }
 
-            return values.Count > 0 ? values : null;
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
+        return values.Count > 0 ? values : null;
     }
 
-    public void Dispose() => PdhCloseQuery(_query);
+    /// <summary>Collects a sample and returns the maximum value after applying <paramref name="offset"/> within <c>(minExclusive, maxExclusive)</c> without allocating.</summary>
+    public double? ReadMaxAdjusted(double offset, double minExclusive, double maxExclusive)
+    {
+        if (!TryCollectItems(out var count)) return null;
+        var itemSize = Marshal.SizeOf<FormattedItem>();
+        double? max = null;
+        for (var index = 0; index < count; index++)
+        {
+            var item = Marshal.PtrToStructure<FormattedItem>(_buffer + index * itemSize);
+            if (item.Status is not (ValidData or NewData)) continue;
+            var adjusted = item.Value + offset;
+            if (adjusted > minExclusive && adjusted < maxExclusive)
+            {
+                max = max.HasValue ? Math.Max(max.Value, adjusted) : adjusted;
+            }
+        }
+
+        return max;
+    }
+
+    private bool TryCollectItems(out uint itemCount)
+    {
+        itemCount = 0;
+        if (_disposed) return false;
+        if (PdhCollectQueryData(_query) != 0) return false;
+        var size = _bufferCapacity;
+        var status = PdhGetFormattedCounterArrayW(_counter, FormatDouble, ref size, out itemCount, _buffer);
+        if (status == MoreData && size > 0)
+        {
+            if (_buffer != 0)
+            {
+                Marshal.FreeHGlobal(_buffer);
+                _buffer = 0;
+                _bufferCapacity = 0;
+            }
+
+            _buffer = Marshal.AllocHGlobal((nint)size);
+            _bufferCapacity = size;
+            status = PdhGetFormattedCounterArrayW(_counter, FormatDouble, ref size, out itemCount, _buffer);
+        }
+
+        return status == 0 && itemCount > 0;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_buffer != 0)
+        {
+            Marshal.FreeHGlobal(_buffer);
+            _buffer = 0;
+            _bufferCapacity = 0;
+        }
+
+        PdhCloseQuery(_query);
+    }
 
     // PDH_FMT_COUNTERVALUE_ITEM_W with the double member of the value union.
     [StructLayout(LayoutKind.Sequential)]

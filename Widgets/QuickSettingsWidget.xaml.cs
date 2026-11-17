@@ -21,9 +21,10 @@ public partial class QuickSettingsWidget : DockWidget
     public QuickSettingsWidget()
     {
         InitializeComponent();
-        UiText.Current.PropertyChanged += (_, _) => Render();
         Render();
     }
+
+    protected override void OnLanguageChanged() => Render();
 
     protected override async void OnActivated()
     {

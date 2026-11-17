@@ -15,7 +15,7 @@ namespace OpenTaskbar;
 public sealed class DockFlyout
 {
     private static int _openCount;
-    private UIElement? _closedTarget;
+    private WeakReference<UIElement>? _closedTarget;
     private nint _previousForeground;
     private bool _restoreFocus;
     private long _closedAt;
@@ -68,16 +68,20 @@ public sealed class DockFlyout
         {
             _openCount = Math.Max(0, _openCount - 1);
             OpenFlyouts.Remove(this);
-            _closedTarget = _popup.PlacementTarget;
+            var target = _popup.PlacementTarget;
+            _closedTarget = target is null ? null : new WeakReference<UIElement>(target);
             _closedAt = Environment.TickCount64;
             // Light dismiss and Esc hand the keyboard back to the app that had it before the flyout opened.
             if (_restoreFocus && _previousForeground != 0
-                && _popup.PlacementTarget is { } target && Window.GetWindow(target) is { IsActive: true })
+                && target is not null && Window.GetWindow(target) is { IsActive: true })
             {
                 NativeWindowTracker.Activate(_previousForeground);
             }
 
+            _innerBevel.Child = null;
+            _popup.PlacementTarget = null;
             Closed?.Invoke(this, EventArgs.Empty);
+            MemoryTrimmer.ScheduleTrim(_popup.Dispatcher, 1000);
         };
         _popup.KeyDown += (_, args) =>
         {
@@ -140,7 +144,10 @@ public sealed class DockFlyout
     }
 
     public bool RecentlyClosed(UIElement target) =>
-        ReferenceEquals(_closedTarget, target) && Environment.TickCount64 - _closedAt < 350;
+        _closedTarget is not null
+        && _closedTarget.TryGetTarget(out var last)
+        && ReferenceEquals(last, target)
+        && Environment.TickCount64 - _closedAt < 350;
 
     /// <summary>Closes without restoring focus: used when a flyout action opens something that should get it.</summary>
     public void Close()

@@ -8,20 +8,21 @@ namespace OpenTaskbar.Widgets;
 
 public partial class AudioWidget : DockWidget
 {
-    private AudioEndpointMonitor? _monitor;
+    private AudioEndpointMonitor.SharedHandle? _monitor;
     private bool _updating;
 
     public AudioWidget()
     {
         InitializeComponent();
-        UiText.Current.PropertyChanged += (_, _) => Render();
     }
+
+    protected override void OnLanguageChanged() => Render();
 
     protected override void OnActivated()
     {
         try
         {
-            _monitor = new AudioEndpointMonitor();
+            _monitor = AudioEndpointMonitor.AcquireShared();
             _monitor.VolumeChanged += Monitor_VolumeChanged;
             _monitor.DefaultDeviceChanged += Monitor_DefaultDeviceChanged;
         }

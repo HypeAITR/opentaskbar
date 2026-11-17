@@ -22,7 +22,7 @@
         Closed="Window_Closed">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-        <ContextMenu x:Key="AppContextMenu" x:Shared="False" Opened="DockContextMenu_Opened" Closed="DockContextMenu_Closed">
+        <ContextMenu x:Key="AppContextMenu" Opened="DockContextMenu_Opened" Closed="DockContextMenu_Closed">
             <Separator Tag="JumpListCommands" Visibility="Collapsed" />
             <MenuItem Header="{local:Loc OpenApplication}" Icon="{StaticResource IconOpen}" Tag="ActivateDockApp" Click="DockAppContextMenu_Click" />
             <MenuItem Header="{local:Loc Pin}" Icon="{StaticResource IconPin}" Tag="PinDockApp" Visibility="Collapsed" Click="PinDockApp_Click" />
@@ -34,7 +34,7 @@
             <MenuItem Header="{local:Loc CloseApplication}" Icon="{StaticResource IconClose}" Tag="CloseDockApp" Click="CloseDockApp_Click" />
             <MenuItem Header="{local:Loc Terminate}" Icon="{StaticResource IconTerminate}" Style="{StaticResource DestructiveMenuItem}" Tag="TerminateDockApp" Click="TerminateDockApp_Click" />
         </ContextMenu>
-        <ContextMenu x:Key="DockContextMenu" x:Shared="False" Opened="DockContextMenu_Opened" Closed="DockContextMenu_Closed">
+        <ContextMenu x:Key="DockContextMenu" Opened="DockContextMenu_Opened" Closed="DockContextMenu_Closed">
             <MenuItem Header="{local:Loc OpenLauncher}" Icon="{StaticResource IconSearch}" Click="OpenLauncher_Click" />
             <MenuItem Header="{local:Loc AddStack}" Icon="{StaticResource IconFolderPlus}" Click="AddStack_Click" />
             <MenuItem Header="{local:Loc Profiles}" Icon="{StaticResource IconLayers}" Tag="ProfilesMenu">
@@ -101,7 +101,7 @@
                 </Grid>
             </Button>
         </DataTemplate>
-        <ContextMenu x:Key="StackContextMenu" x:Shared="False" Opened="DockContextMenu_Opened" Closed="DockContextMenu_Closed">
+        <ContextMenu x:Key="StackContextMenu" Opened="DockContextMenu_Opened" Closed="DockContextMenu_Closed">
             <MenuItem Header="{local:Loc OpenFolder}" Icon="{StaticResource IconOpen}" Click="StackOpenFolder_Click" />
             <MenuItem Header="{local:Loc RemoveStack}" Icon="{StaticResource IconClose}" Click="StackRemove_Click" />
         </ContextMenu>

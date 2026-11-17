@@ -55,6 +55,12 @@ public sealed class LauncherCatalog
 
     public bool IsLoaded => _loadedAt != DateTime.MinValue;
 
+    public void ClearCache()
+    {
+        _apps = [];
+        _loadedAt = DateTime.MinValue;
+    }
+
     /// <summary>Reloads the app list in the background when it is older than a few minutes.</summary>
     public Task RefreshAsync()
     {

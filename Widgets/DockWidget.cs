@@ -1,7 +1,9 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using OpenTaskbar.Models;
+using OpenTaskbar.Services;
 
 namespace OpenTaskbar.Widgets;
 
@@ -44,6 +46,7 @@ public class DockWidget : UserControl, IDisposable
     {
         if (IsActive) return;
         IsActive = true;
+        UiText.Current.PropertyChanged += UiText_PropertyChanged;
         UpdateVisibility();
         OnActivated();
     }
@@ -52,6 +55,7 @@ public class DockWidget : UserControl, IDisposable
     {
         if (!IsActive) return;
         IsActive = false;
+        UiText.Current.PropertyChanged -= UiText_PropertyChanged;
         UpdateVisibility();
         OnDeactivated();
     }
@@ -70,7 +74,13 @@ public class DockWidget : UserControl, IDisposable
     protected virtual void OnActivated() { }
     protected virtual void OnDeactivated() { }
     protected virtual void OnSettingsChanged() { }
+    protected virtual void OnLanguageChanged() { }
     protected virtual void OnTick(DateTime now) { }
+
+    private void UiText_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (IsActive) OnLanguageChanged();
+    }
 
     protected void Report(string? error)
     {

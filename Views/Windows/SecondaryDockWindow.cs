@@ -16,13 +16,23 @@ namespace OpenTaskbar;
 /// </summary>
 public sealed class SecondaryDockWindow : Window
 {
+    private sealed class AppSlot(string path, BitmapSource? icon, nint targetHandle, string title, bool isForeground, System.Windows.Shapes.Ellipse dot)
+    {
+        public string Path { get; } = path;
+        public BitmapSource? Icon { get; } = icon;
+        public nint TargetHandle { get; set; } = targetHandle;
+        public string Title { get; set; } = title;
+        public bool IsForeground { get; set; } = isForeground;
+        public System.Windows.Shapes.Ellipse Dot { get; } = dot;
+    }
+
     private readonly nint _monitor;
     private readonly StackPanel _apps;
     private readonly TextBlock _clock;
     private readonly RunningAppIconCache _icons;
+    private readonly List<AppSlot> _slots = [];
+    private string _lastClockText = string.Empty;
     private nint _handle;
-    private string _signature = string.Empty;
-    private List<BitmapSource?> _shownIcons = [];
     private bool _stripAvailable = true;
     private bool _fullScreen;
 
@@ -101,7 +111,13 @@ public sealed class SecondaryDockWindow : Window
 
     public void Update(IReadOnlyList<TrackedWindow> windows, nint foreground)
     {
-        _clock.Text = DateTime.Now.ToString("t", CultureInfo.CurrentCulture);
+        var clockText = DateTime.Now.ToString("t", CultureInfo.CurrentCulture);
+        if (!string.Equals(clockText, _lastClockText, StringComparison.Ordinal))
+        {
+            _lastClockText = clockText;
+            _clock.Text = clockText;
+        }
+
         var mine = windows
             .Where(window => window.ExecutablePath is not null && MonitorFromWindow(window.Handle, 2) == _monitor)
             .GroupBy(window => window.ExecutablePath!, StringComparer.OrdinalIgnoreCase)
@@ -109,19 +125,62 @@ public sealed class SecondaryDockWindow : Window
         // Captionless windows covering the display (games, video) hide this dock like the main one.
         _fullScreen = foreground != 0 && MonitorFromWindow(foreground, 2) == _monitor && IsFullScreen(foreground);
         ApplyVisibility();
-        var signature = string.Join("|", mine.Select(group => group.Key + ":" + group.Count() + ":" + group.Any(w => w.Handle == foreground)));
-        // Icons are compared too because a Store app's icon can resolve after its window appears.
+
         var icons = mine.Select(group => _icons.Get(group.Key, group.First().Handle)).ToList();
-        if (signature == _signature && icons.SequenceEqual(_shownIcons, ReferenceEqualityComparer.Instance)) return;
-        _signature = signature;
-        _shownIcons = icons;
+        var sameStructure = mine.Count == _slots.Count;
+        if (sameStructure)
+        {
+            for (var i = 0; i < mine.Count; i++)
+            {
+                if (!string.Equals(mine[i].Key, _slots[i].Path, StringComparison.OrdinalIgnoreCase)
+                    || !ReferenceEquals(icons[i], _slots[i].Icon))
+                {
+                    sameStructure = false;
+                    break;
+                }
+            }
+        }
+
+        if (sameStructure)
+        {
+            for (var i = 0; i < mine.Count; i++)
+            {
+                var group = mine[i];
+                var slot = _slots[i];
+                var first = group.First();
+                var active = group.FirstOrDefault(window => window.Handle == foreground) ?? first;
+                var isForeground = active.Handle == foreground;
+                slot.TargetHandle = active.Handle;
+                if (!string.Equals(slot.Title, first.Title, StringComparison.Ordinal))
+                {
+                    slot.Title = first.Title;
+                    if (_apps.Children[i] is Button btn)
+                    {
+                        btn.ToolTip = first.Title;
+                        System.Windows.Automation.AutomationProperties.SetName(btn, first.Title);
+                    }
+                }
+                if (slot.IsForeground != isForeground)
+                {
+                    slot.IsForeground = isForeground;
+                    slot.Dot.Width = isForeground ? 5 : 4;
+                    slot.Dot.Height = isForeground ? 5 : 4;
+                    slot.Dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, isForeground ? "IndicatorForegroundBrush" : "IndicatorBrush");
+                }
+            }
+            return;
+        }
+
+        _slots.Clear();
         _apps.Children.Clear();
         for (var index = 0; index < mine.Count; index++)
         {
             var group = mine[index];
             var path = group.Key;
             var icon = icons[index];
-            var isForeground = group.Any(window => window.Handle == foreground);
+            var first = group.First();
+            var active = group.FirstOrDefault(window => window.Handle == foreground) ?? first;
+            var isForeground = active.Handle == foreground;
             var image = new Image { Source = icon, Width = 26, Height = 26 };
             RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
             var dot = new System.Windows.Shapes.Ellipse { Width = isForeground ? 5 : 4, Height = isForeground ? 5 : 4, Margin = new Thickness(0, 2, 0, 0) };
@@ -129,11 +188,11 @@ public sealed class SecondaryDockWindow : Window
             var cell = new StackPanel();
             cell.Children.Add(image);
             cell.Children.Add(dot);
-            var first = group.First();
-            var button = DockFlyout.FlatButton(cell, (_, _) => NativeWindowTracker.ToggleActivation(
-                (group.FirstOrDefault(window => window.Handle == foreground) ?? first).Handle, path), first.Title);
+            var slot = new AppSlot(path, icon, active.Handle, first.Title, isForeground, dot);
+            var button = DockFlyout.FlatButton(cell, (_, _) => NativeWindowTracker.ToggleActivation(slot.TargetHandle, slot.Path), first.Title);
             button.Padding = new Thickness(6, 2, 6, 0);
             System.Windows.Automation.AutomationProperties.SetName(button, first.Title);
+            _slots.Add(slot);
             _apps.Children.Add(button);
         }
     }

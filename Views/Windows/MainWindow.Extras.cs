@@ -35,6 +35,18 @@ public partial class MainWindow
         ApplyExtrasSettings();
     }
 
+    private static readonly Brush StackTileBrush = CreateFrozenStackBrush(Color.FromArgb(0x35, 0xFF, 0xFF, 0xFF));
+    private static readonly Brush StackTileStroke = CreateFrozenStackBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
+
+    private static Brush CreateFrozenStackBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
+    private int StackIconPixels => ApplicationIconProvider.ComputeTargetPixels(Profile.Icon, VisualTreeHelper.GetDpi(this).DpiScaleX);
+
     private void ApplyExtrasSettings()
     {
         var showBin = _preferences.Current.ShowRecycleBin;
@@ -57,8 +69,8 @@ public partial class MainWindow
             foreach (var folder in folders.Where(Directory.Exists))
             {
                 var stack = new DockStack(folder, Dispatcher);
-                stack.Icon = CreateStackIcon(stack);
-                stack.ContentsChanged += () => stack.Icon = CreateStackIcon(stack);
+                stack.Icon = CreateStackIcon(stack, StackIconPixels);
+                stack.ContentsChanged += () => stack.Icon = CreateStackIcon(stack, StackIconPixels);
                 _stacks.Add(stack);
             }
         }
@@ -78,30 +90,31 @@ public partial class MainWindow
 
     private int ExtraButtonCount => _stacks.Count + (RecycleBinButton.Visibility == Visibility.Visible ? 1 : 0);
 
-    private static BitmapSource? CreateStackIcon(DockStack stack)
+    internal static BitmapSource? CreateStackIcon(DockStack stack, int targetSize = 128)
     {
+        var size = Math.Max(16, targetSize);
         var entries = stack.RecentEntries(4);
         if (entries.Count == 0)
         {
-            return ApplicationIconProvider.GetForShellItem(stack.Path, 128, iconOnly: true);
+            return ApplicationIconProvider.GetForShellItem(stack.Path, size, iconOnly: true);
         }
 
-        const int size = 128;
-        const int padding = 6;
-        const int itemSize = 48;
-        const int x0 = 13;
-        const int x1 = 67;
-        const int y0 = 13;
-        const int y1 = 67;
+        var scale = size / 128.0;
+        var padding = 6 * scale;
+        var itemSize = 48 * scale;
+        var x0 = 13 * scale;
+        var x1 = 67 * scale;
+        var y0 = 13 * scale;
+        var y1 = 67 * scale;
+        var corner = 22 * scale;
+        var subIconRequest = Math.Max(16, (int)Math.Ceiling(itemSize));
 
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            var tileBrush = new SolidColorBrush(Color.FromArgb(0x35, 0xFF, 0xFF, 0xFF));
-            var tilePen = new Pen(new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)), 1.5);
-            tileBrush.Freeze();
+            var tilePen = new Pen(StackTileStroke, Math.Max(0.5, 1.5 * scale));
             tilePen.Freeze();
-            dc.DrawRoundedRectangle(tileBrush, tilePen, new Rect(padding, padding, size - padding * 2, size - padding * 2), 22, 22);
+            dc.DrawRoundedRectangle(StackTileBrush, tilePen, new Rect(padding, padding, size - padding * 2, size - padding * 2), corner, corner);
 
             var positions = new[]
             {
@@ -113,7 +126,7 @@ public partial class MainWindow
 
             for (var i = 0; i < entries.Count && i < positions.Length; i++)
             {
-                var icon = ApplicationIconProvider.GetForShellItem(entries[i].FullName, 64, iconOnly: true);
+                var icon = ApplicationIconProvider.GetForShellItem(entries[i].FullName, subIconRequest, iconOnly: true);
                 if (icon is not null)
                 {
                     dc.DrawImage(icon, positions[i]);
@@ -217,6 +230,7 @@ public partial class MainWindow
             root.Children.Add(DockFlyout.Caption(UiText.Get("StackEmpty")));
         }
 
+        var flyoutIconPixels = ApplicationIconProvider.ComputeTargetPixels(48, VisualTreeHelper.GetDpi(this).DpiScaleX);
         var grid = new WrapPanel();
         foreach (var entry in entries)
         {
@@ -240,7 +254,7 @@ public partial class MainWindow
             button.Margin = new Thickness(2);
             grid.Children.Add(button);
             // Thumbnails can be slow (videos, network drives); fill them in after the flyout is shown.
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, () => image.Source = ApplicationIconProvider.GetForShellItem(path, 96));
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, () => image.Source = ApplicationIconProvider.GetForShellItem(path, flyoutIconPixels));
         }
 
         root.Children.Add(grid);

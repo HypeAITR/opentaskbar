@@ -10,25 +10,27 @@ public sealed class DesktopsWidget : DockWidget
     private readonly TextBlock _label;
     private readonly Button _previous;
     private readonly Button _next;
+    private readonly Button _add;
+    private readonly Button _taskView;
     private (int Current, int Count) _state = (0, 0);
 
     public DesktopsWidget()
     {
         _previous = IconButton("IconChevronLeft", "DesktopPrevious", () => VirtualDesktops.Previous());
         _next = IconButton("IconChevronNext", "DesktopNext", () => VirtualDesktops.Next());
-        var add = IconButton("IconPlus", "DesktopNew", () => VirtualDesktops.Create());
+        _add = IconButton("IconPlus", "DesktopNew", () => VirtualDesktops.Create());
         _label = new TextBlock { MinWidth = 30, TextAlignment = TextAlignment.Center };
         _label.SetResourceReference(StyleProperty, "WidgetText");
-        var taskView = new Button { Content = _label, Width = double.NaN, Padding = new Thickness(4, 0, 4, 0) };
-        taskView.SetResourceReference(StyleProperty, "WidgetIconButton");
-        taskView.Width = double.NaN;
-        taskView.Click += (_, _) => Report(VirtualDesktops.TaskView());
-        SetLocalizedName(taskView, "DesktopTaskView");
+        _taskView = new Button { Content = _label, Width = double.NaN, Padding = new Thickness(4, 0, 4, 0) };
+        _taskView.SetResourceReference(StyleProperty, "WidgetIconButton");
+        _taskView.Width = double.NaN;
+        _taskView.Click += (_, _) => Report(VirtualDesktops.TaskView());
+        LocalizeButtons();
         var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         row.Children.Add(_previous);
-        row.Children.Add(taskView);
+        row.Children.Add(_taskView);
         row.Children.Add(_next);
-        row.Children.Add(add);
+        row.Children.Add(_add);
         var card = new Border { Child = row, Padding = new Thickness(4, 0, 4, 0) };
         card.SetResourceReference(StyleProperty, "WidgetCardBorder");
         Content = card;
@@ -42,24 +44,34 @@ public sealed class DesktopsWidget : DockWidget
         var button = new Button { Content = glyph };
         button.SetResourceReference(StyleProperty, "WidgetIconButton");
         button.Click += (_, _) => Report(action());
-        SetLocalizedName(button, textKey);
         return button;
+    }
+
+    private void LocalizeButtons()
+    {
+        SetLocalizedName(_previous, "DesktopPrevious");
+        SetLocalizedName(_next, "DesktopNext");
+        SetLocalizedName(_add, "DesktopNew");
+        SetLocalizedName(_taskView, "DesktopTaskView");
     }
 
     private static void SetLocalizedName(Button button, string key)
     {
-        void Apply()
-        {
-            button.ToolTip = UiText.Get(key);
-            System.Windows.Automation.AutomationProperties.SetName(button, UiText.Get(key));
-        }
+        var text = UiText.Get(key);
+        button.ToolTip = text;
+        System.Windows.Automation.AutomationProperties.SetName(button, text);
+    }
 
-        Apply();
-        UiText.Current.PropertyChanged += (_, _) => Apply();
+    protected override void OnLanguageChanged()
+    {
+        LocalizeButtons();
+        if (_state.Count > 0)
+            System.Windows.Automation.AutomationProperties.SetName(this, UiText.Format("DesktopState", _state.Current, _state.Count));
     }
 
     protected override void OnActivated()
     {
+        LocalizeButtons();
         _state = (0, 0);
         OnTick(DateTime.Now);
     }

@@ -37,11 +37,18 @@ public sealed class NativeWindowTracker : IDisposable
     private readonly WinEventDelegate _eventCallback;
     private readonly EnumWindowsDelegate _enumCallback;
     private readonly HashSet<nint> _notificationWindows = [];
+    private readonly List<TrackedWindow> _scratchWindows = [];
+    private readonly Dictionary<nint, TrackedWindow> _previousWindows = [];
+    private readonly StringBuilder _titleBuffer = new(256);
+    private readonly StringBuilder _classBuffer = new(256);
+    private readonly StringBuilder _pathBuffer = new(1024);
     private nint _windowHook;
     private nint _nameChangeHook;
     private nint _systemEventHook;
     private nint _excludedWindow;
     private nint _lastForegroundWindow;
+    private nint _lastLocationForeground;
+    private long _lastLocationTick;
     private int _refreshQueued;
     private int _urgentRefresh;
     private bool _disposed;
@@ -108,6 +115,14 @@ public sealed class NativeWindowTracker : IDisposable
                 var foreground = GetForegroundWindow();
                 if (foreground != 0 && (windowHandle == foreground || GetAncestor(windowHandle, GaRootOwner) == foreground))
                 {
+                    var now = Environment.TickCount64;
+                    if (foreground == _lastLocationForeground && now - _lastLocationTick < 100)
+                    {
+                        return;
+                    }
+
+                    _lastLocationForeground = foreground;
+                    _lastLocationTick = now;
                     QueueRefresh();
                     ForegroundWindowChanged?.Invoke(foreground);
                 }
@@ -186,27 +201,29 @@ public sealed class NativeWindowTracker : IDisposable
 
     private void RefreshWindows()
     {
-        var windows = new List<TrackedWindow>();
-        var previousWindows = Snapshot.ToDictionary(window => window.Handle);
-        var state = GCHandle.Alloc(new WindowCollectionState(windows, previousWindows));
-        try
+        _scratchWindows.Clear();
+        _previousWindows.Clear();
+        foreach (var existing in Snapshot)
         {
-            EnumWindows(_enumCallback, GCHandle.ToIntPtr(state));
+            _previousWindows[existing.Handle] = existing;
         }
-        finally
-        {
-            state.Free();
-        }
+
+        EnumWindows(_enumCallback, 0);
 
         _notificationWindows.RemoveWhere(windowHandle => !IsWindow(windowHandle));
 
-        if (Snapshot.SequenceEqual(windows))
+        if (Snapshot.SequenceEqual(_scratchWindows))
         {
+            _scratchWindows.Clear();
+            _previousWindows.Clear();
             return;
         }
 
-        Snapshot = windows;
-        WindowsChanged?.Invoke(this, windows);
+        var snapshot = _scratchWindows.ToArray();
+        _scratchWindows.Clear();
+        _previousWindows.Clear();
+        Snapshot = snapshot;
+        WindowsChanged?.Invoke(this, snapshot);
     }
 
     private bool CollectWindow(nint windowHandle, nint state)
@@ -232,38 +249,37 @@ public sealed class NativeWindowTracker : IDisposable
             return true;
         }
 
-        var title = new StringBuilder(Math.Min(titleLength + 1, 1024));
-        GetWindowText(windowHandle, title, title.Capacity);
-        var value = title.ToString().Trim();
+        var needed = Math.Min(titleLength + 1, 1024);
+        if (_titleBuffer.Capacity < needed) _titleBuffer.EnsureCapacity(needed);
+        _titleBuffer.Clear();
+        GetWindowText(windowHandle, _titleBuffer, _titleBuffer.Capacity);
+        var value = _titleBuffer.ToString().Trim();
         if (value.Length > 0)
         {
-            if (GCHandle.FromIntPtr(state).Target is WindowCollectionState collection)
+            _previousWindows.TryGetValue(windowHandle, out var previous);
+            var executablePath = previous?.ExecutablePath ?? GetExecutablePath(windowHandle, _pathBuffer);
+            if (IsWindowsSystemApp(executablePath))
             {
-                collection.Previous.TryGetValue(windowHandle, out var previous);
-                var executablePath = previous?.ExecutablePath ?? GetExecutablePath(windowHandle);
-                if (IsWindowsSystemApp(executablePath))
-                {
-                    return true;
-                }
+                return true;
+            }
 
-                if (IsExplorerShellWindow(executablePath, windowHandle))
-                {
-                    return true;
-                }
+            if (IsExplorerShellWindow(executablePath, windowHandle, _classBuffer))
+            {
+                return true;
+            }
 
-                if (previous is not null)
+            if (previous is not null)
+            {
+                _scratchWindows.Add(previous with
                 {
-                    collection.Windows.Add(previous with
-                    {
-                        Title = value,
-                        HasNotification = _notificationWindows.Contains(windowHandle)
-                    });
-                }
-                else
-                {
-                    collection.Windows.Add(new TrackedWindow(windowHandle, value,
-                        executablePath, _notificationWindows.Contains(windowHandle)));
-                }
+                    Title = value,
+                    HasNotification = _notificationWindows.Contains(windowHandle)
+                });
+            }
+            else
+            {
+                _scratchWindows.Add(new TrackedWindow(windowHandle, value,
+                    executablePath, _notificationWindows.Contains(windowHandle)));
             }
         }
 
@@ -373,8 +389,6 @@ public sealed class NativeWindowTracker : IDisposable
     private delegate void WinEventDelegate(nint hook, uint eventType, nint windowHandle, int objectId, int childId, uint eventThread, uint eventTime);
     private delegate bool EnumWindowsDelegate(nint windowHandle, nint state);
 
-    private sealed record WindowCollectionState(List<TrackedWindow> Windows, IReadOnlyDictionary<nint, TrackedWindow> Previous);
-
     [DllImport("user32.dll", SetLastError = true)]
     private static extern nint SetWinEventHook(uint eventMin, uint eventMax, nint eventHookModule, WinEventDelegate callback, uint processId, uint threadId, uint flags);
 
@@ -421,7 +435,7 @@ public sealed class NativeWindowTracker : IDisposable
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
-    private static string? GetExecutablePath(nint windowHandle)
+    private static string? GetExecutablePath(nint windowHandle, StringBuilder? buffer = null)
     {
         var threadId = GetWindowThreadProcessId(windowHandle, out var processId);
         if (threadId == 0 || processId == 0)
@@ -437,9 +451,22 @@ public sealed class NativeWindowTracker : IDisposable
 
         try
         {
-            var path = new StringBuilder(32768);
+            var path = buffer ?? new StringBuilder(1024);
+            path.Clear();
             var length = (uint)path.Capacity;
-            return QueryFullProcessImageName(processHandle, 0, path, ref length) ? path.ToString() : null;
+            if (QueryFullProcessImageName(processHandle, 0, path, ref length))
+            {
+                return path.ToString();
+            }
+
+            if (Marshal.GetLastPInvokeError() == ErrorInsufficientBuffer)
+            {
+                path.EnsureCapacity(32768);
+                length = (uint)path.Capacity;
+                return QueryFullProcessImageName(processHandle, 0, path, ref length) ? path.ToString() : null;
+            }
+
+            return null;
         }
         finally
         {
@@ -485,14 +512,14 @@ public sealed class NativeWindowTracker : IDisposable
             && executablePath.StartsWith(WindowsSystemAppsDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsExplorerShellWindow(string? executablePath, nint windowHandle)
+    private static bool IsExplorerShellWindow(string? executablePath, nint windowHandle, StringBuilder className)
     {
         if (!string.Equals(Path.GetFileName(executablePath), "explorer.exe", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        var className = new StringBuilder(256);
+        className.Clear();
         var length = GetClassName(windowHandle, className, className.Capacity);
         return length <= 0 || className.ToString() is not ("CabinetWClass" or "ExploreWClass");
     }

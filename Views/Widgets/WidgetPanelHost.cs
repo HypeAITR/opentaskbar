@@ -88,6 +88,7 @@ public sealed class WidgetPanelHost : IDisposable
         if (_restoreFocus && _owner.IsActive && anchor is { IsLoaded: true, IsVisible: true })
             anchor.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
         IsOpenChanged?.Invoke(this, EventArgs.Empty);
+        MemoryTrimmer.ScheduleTrim(_owner.Dispatcher, 1000);
     }
 
     private void Frame_CloseRequested(object? sender, EventArgs e) => Close();

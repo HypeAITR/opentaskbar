@@ -22,16 +22,18 @@ public sealed class TrayWidget : DockWidget
         _button = new Button { Content = glyph, Padding = new Thickness(10, 0, 10, 0) };
         _button.SetResourceReference(StyleProperty, "WidgetCardButton");
         _button.Click += Button_Click;
-        void Localize()
-        {
-            _button.ToolTip = UiText.Get("TrayApps");
-            System.Windows.Automation.AutomationProperties.SetName(_button, UiText.Get("TrayApps"));
-        }
-
         Localize();
-        UiText.Current.PropertyChanged += (_, _) => Localize();
         Content = _button;
     }
+
+    private void Localize()
+    {
+        _button.ToolTip = UiText.Get("TrayApps");
+        System.Windows.Automation.AutomationProperties.SetName(_button, UiText.Get("TrayApps"));
+    }
+
+    protected override void OnActivated() => Localize();
+    protected override void OnLanguageChanged() => Localize();
 
     protected override void OnDeactivated() => _flyout.Close();
 

@@ -38,8 +38,9 @@ public sealed class WeatherWidget : DockWidget
         _card.Click += (_, _) => _flyout.Toggle(_card, BuildFlyout);
         Content = _card;
         HasData = false;
-        UiText.Current.PropertyChanged += (_, _) => Render();
     }
+
+    protected override void OnLanguageChanged() => Render();
 
     private string LocationKey => $"{Settings.WeatherCity.Trim()}|{Settings.Language}";
 

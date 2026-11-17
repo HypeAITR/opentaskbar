@@ -39,6 +39,13 @@ public sealed class RingMeter : FrameworkElement
 
     private static readonly Typeface CaptionFace = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
 
+    private Pen? _trackPen;
+    private Brush? _trackPenBrush;
+    private double _trackPenThickness;
+    private Pen? _valuePen;
+    private Brush? _valuePenBrush;
+    private double _valuePenThickness;
+
     public double Value { get => (double)GetValue(ValueProperty); set => SetValue(ValueProperty, value); }
     public string Text { get => (string)GetValue(TextProperty); set => SetValue(TextProperty, value); }
     public double StrokeThickness { get => (double)GetValue(StrokeThicknessProperty); set => SetValue(StrokeThicknessProperty, value); }
@@ -57,12 +64,12 @@ public sealed class RingMeter : FrameworkElement
         var center = new Point(ActualWidth / 2, ActualHeight / 2);
         var radius = (size - StrokeThickness) / 2;
 
-        var trackPen = new Pen(TrackBrush, StrokeThickness);
+        var trackPen = GetTrackPen(TrackBrush, StrokeThickness);
         context.DrawEllipse(null, trackPen, center, radius, radius);
 
         if (Value > 0.001)
         {
-            var valuePen = new Pen(ValueBrush, StrokeThickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var valuePen = GetValuePen(ValueBrush, StrokeThickness);
             if (Value >= 0.999)
             {
                 context.DrawEllipse(null, valuePen, center, radius, radius);
@@ -122,4 +129,28 @@ public sealed class RingMeter : FrameworkElement
 
     public string Caption { get => (string)GetValue(CaptionProperty); set => SetValue(CaptionProperty, value); }
     public Brush CaptionBrush { get => (Brush)GetValue(CaptionBrushProperty); set => SetValue(CaptionBrushProperty, value); }
+
+    private Pen GetTrackPen(Brush brush, double thickness)
+    {
+        if (_trackPen is not null && ReferenceEquals(_trackPenBrush, brush) && _trackPenThickness == thickness)
+            return _trackPen;
+        var pen = new Pen(brush, thickness);
+        if (brush.IsFrozen) pen.Freeze();
+        _trackPen = pen;
+        _trackPenBrush = brush;
+        _trackPenThickness = thickness;
+        return pen;
+    }
+
+    private Pen GetValuePen(Brush brush, double thickness)
+    {
+        if (_valuePen is not null && ReferenceEquals(_valuePenBrush, brush) && _valuePenThickness == thickness)
+            return _valuePen;
+        var pen = new Pen(brush, thickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+        if (brush.IsFrozen) pen.Freeze();
+        _valuePen = pen;
+        _valuePenBrush = brush;
+        _valuePenThickness = thickness;
+        return pen;
+    }
 }

@@ -87,9 +87,25 @@ public sealed class ThemePack
 public static class ThemePacks
 {
     public const int RenderSize = 128;
+    private const int MaxCachedImages = 64;
     private static readonly Dictionary<string, BitmapSource?> Images = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Queue<string> ImageOrder = new();
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BitmapSource, BitmapSource> Plated = new();
     private static readonly Dictionary<string, (ResourceDictionary Owner, object Value)> MetricOriginals = new(StringComparer.Ordinal);
+    private static int _preferredIconPixels;
+
+    /// <summary>Optional DPI-scaled max decode pixel size for icon pack PNGs (0 = natural image size).</summary>
+    public static int PreferredIconPixels
+    {
+        get => _preferredIconPixels;
+        set
+        {
+            if (_preferredIconPixels == value) return;
+            _preferredIconPixels = value;
+            Images.Clear();
+            ImageOrder.Clear();
+        }
+    }
 
     public static string Root { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenTaskbar", "Themes");
@@ -141,6 +157,7 @@ public static class ThemePacks
         Current = pack;
         if (!changed) return false;
         Images.Clear();
+        ImageOrder.Clear();
         Plated.Clear();
         Changed?.Invoke(null, EventArgs.Empty);
         return true;
@@ -200,12 +217,12 @@ public static class ThemePacks
     }
 
     /// <summary>The theme's image for an app or special item, the original placed on the theme's plate, or the original.</summary>
-    public static BitmapSource? ApplyIcon(BitmapSource? original, string? executablePath, string? appId = null, string? specialKey = null)
+    public static BitmapSource? ApplyIcon(BitmapSource? original, string? executablePath, string? appId = null, string? specialKey = null, int targetPixels = 0)
     {
         var pack = Current?.Icons;
         if (pack is null) return original;
         var file = pack.FindIconFile(executablePath, appId, specialKey);
-        if (file is not null && LoadImage(file) is { } themed) return themed;
+        if (file is not null && LoadImage(file, targetPixels) is { } themed) return themed;
         // Special items keep their built-in look unless the pack draws them.
         if (original is null || specialKey == IconPack.StartKey || pack.Fallback.Shape == IconPackShape.None) return original;
         if (Plated.TryGetValue(original, out var plated)) return plated;
@@ -222,20 +239,46 @@ public static class ThemePacks
         }
     }
 
-    private static BitmapSource? LoadImage(string file)
+    private static BitmapSource? LoadImage(string file, int targetPixels = 0)
     {
-        if (Images.TryGetValue(file, out var cached)) return cached;
+        var decodeTarget = targetPixels > 0 ? targetPixels : _preferredIconPixels;
+        var cacheKey = decodeTarget > 0 ? $"{file}|{decodeTarget}" : file;
+        if (Images.TryGetValue(cacheKey, out var cached)) return cached;
         BitmapSource? image = null;
         try
         {
-            var bitmap = new BitmapImage();
-            bitmap.BeginInit();
-            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-            bitmap.UriSource = new Uri(file, UriKind.Absolute);
-            bitmap.EndInit();
-            bitmap.Freeze();
-            image = bitmap;
+            if (decodeTarget > 0)
+            {
+                using var stream = File.OpenRead(file);
+                var header = BitmapDecoder.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+                var frame = header.Frames[0];
+                var decodeWide = frame.PixelWidth > decodeTarget || frame.PixelHeight > decodeTarget;
+                stream.Position = 0;
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+                if (decodeWide)
+                {
+                    if (frame.PixelWidth >= frame.PixelHeight) bitmap.DecodePixelWidth = decodeTarget;
+                    else bitmap.DecodePixelHeight = decodeTarget;
+                }
+                bitmap.StreamSource = stream;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                image = bitmap;
+            }
+            else
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+                bitmap.UriSource = new Uri(file, UriKind.Absolute);
+                bitmap.EndInit();
+                bitmap.Freeze();
+                image = bitmap;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException
             or ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException)
@@ -243,7 +286,15 @@ public static class ThemePacks
             AppLog.Warning($"Icon pack image '{file}' could not be loaded: {ex.Message}");
         }
 
-        Images[file] = image;
+        if (image is not null)
+        {
+            while (Images.Count >= MaxCachedImages && ImageOrder.TryDequeue(out var oldest))
+            {
+                Images.Remove(oldest);
+            }
+            Images[cacheKey] = image;
+            ImageOrder.Enqueue(cacheKey);
+        }
         return image;
     }
 

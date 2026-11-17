@@ -114,41 +114,33 @@ public static class WeatherService
         _ => ("IconCloud", "WeatherCloudy")
     };
 
+    private static readonly Brush ClearBg = FreezeGradient(0x38, 0xF5, 0x9E, 0x0B, 0x0C, 0xF5, 0x9E, 0x0B);
+    private static readonly Brush PartlyCloudyBg = FreezeGradient(0x32, 0x38, 0xBD, 0xF8, 0x0C, 0x02, 0x84, 0xC7);
+    private static readonly Brush CloudyBg = FreezeGradient(0x30, 0x64, 0x74, 0x8B, 0x0C, 0x47, 0x55, 0x69);
+    private static readonly Brush FogBg = FreezeGradient(0x30, 0x94, 0xA3, 0xB8, 0x0C, 0x64, 0x74, 0x8B);
+    private static readonly Brush RainBg = FreezeGradient(0x38, 0x25, 0x63, 0xEB, 0x0E, 0x1D, 0x4E, 0xD8);
+    private static readonly Brush SnowBg = FreezeGradient(0x34, 0x06, 0xB6, 0xD4, 0x0C, 0x08, 0x91, 0xB2);
+    private static readonly Brush StormBg = FreezeGradient(0x40, 0x7C, 0x3A, 0xED, 0x10, 0x4C, 0x1D, 0x95);
+    private static readonly Brush DefaultBg = FreezeGradient(0x28, 0x38, 0xBD, 0xF8, 0x08, 0x38, 0xBD, 0xF8);
+
+    private static LinearGradientBrush FreezeGradient(byte a1, byte r1, byte g1, byte b1, byte a2, byte r2, byte g2, byte b2)
+    {
+        var brush = new LinearGradientBrush(Color.FromArgb(a1, r1, g1, b1), Color.FromArgb(a2, r2, g2, b2), new Point(0, 0), new Point(1, 1));
+        brush.Freeze();
+        return brush;
+    }
+
     /// <summary>Subtle ambient gradient tint matching the condition for flyout backgrounds.</summary>
     public static Brush GetConditionBackground(int code) => code switch
     {
-        0 => new LinearGradientBrush(
-            Color.FromArgb(0x38, 0xF5, 0x9E, 0x0B),
-            Color.FromArgb(0x0C, 0xF5, 0x9E, 0x0B),
-            new Point(0, 0), new Point(1, 1)),
-        1 or 2 => new LinearGradientBrush(
-            Color.FromArgb(0x32, 0x38, 0xBD, 0xF8),
-            Color.FromArgb(0x0C, 0x02, 0x84, 0xC7),
-            new Point(0, 0), new Point(1, 1)),
-        3 => new LinearGradientBrush(
-            Color.FromArgb(0x30, 0x64, 0x74, 0x8B),
-            Color.FromArgb(0x0C, 0x47, 0x55, 0x69),
-            new Point(0, 0), new Point(1, 1)),
-        45 or 48 => new LinearGradientBrush(
-            Color.FromArgb(0x30, 0x94, 0xA3, 0xB8),
-            Color.FromArgb(0x0C, 0x64, 0x74, 0x8B),
-            new Point(0, 0), new Point(1, 1)),
-        >= 51 and <= 67 or >= 80 and <= 82 => new LinearGradientBrush(
-            Color.FromArgb(0x38, 0x25, 0x63, 0xEB),
-            Color.FromArgb(0x0E, 0x1D, 0x4E, 0xD8),
-            new Point(0, 0), new Point(1, 1)),
-        >= 71 and <= 77 or 85 or 86 => new LinearGradientBrush(
-            Color.FromArgb(0x34, 0x06, 0xB6, 0xD4),
-            Color.FromArgb(0x0C, 0x08, 0x91, 0xB2),
-            new Point(0, 0), new Point(1, 1)),
-        >= 95 => new LinearGradientBrush(
-            Color.FromArgb(0x40, 0x7C, 0x3A, 0xED),
-            Color.FromArgb(0x10, 0x4C, 0x1D, 0x95),
-            new Point(0, 0), new Point(1, 1)),
-        _ => new LinearGradientBrush(
-            Color.FromArgb(0x28, 0x38, 0xBD, 0xF8),
-            Color.FromArgb(0x08, 0x38, 0xBD, 0xF8),
-            new Point(0, 0), new Point(1, 1))
+        0 => ClearBg,
+        1 or 2 => PartlyCloudyBg,
+        3 => CloudyBg,
+        45 or 48 => FogBg,
+        >= 51 and <= 67 or >= 80 and <= 82 => RainBg,
+        >= 71 and <= 77 or 85 or 86 => SnowBg,
+        >= 95 => StormBg,
+        _ => DefaultBg
     };
 
     private static HttpClient CreateClient()

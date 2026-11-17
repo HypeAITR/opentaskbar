@@ -8,6 +8,10 @@ namespace OpenTaskbar.Services;
 /// </summary>
 public sealed class AudioEndpointMonitor : IDisposable
 {
+    private static readonly object SharedLock = new();
+    private static AudioEndpointMonitor? _sharedInstance;
+    private static int _sharedRefCount;
+
     private const int DataFlowRender = 0;
     private const int RoleMultimedia = 1;
     private const int ClsCtxAll = 0x17;
@@ -20,6 +24,8 @@ public sealed class AudioEndpointMonitor : IDisposable
     private readonly VolumeCallback _volumeCallback;
     private IAudioEndpointVolume? _volume;
     private Guid _eventContext = Guid.NewGuid();
+    private long _pendingDeviceGeneration;
+    private long _boundDeviceGeneration;
     private bool _disposed;
 
     public event Action? VolumeChanged;
@@ -130,7 +136,9 @@ public sealed class AudioEndpointMonitor : IDisposable
 
     private void RaiseDefaultDeviceChanged()
     {
-        if (!_disposed) DefaultDeviceChanged?.Invoke();
+        if (_disposed) return;
+        Interlocked.Increment(ref _pendingDeviceGeneration);
+        DefaultDeviceChanged?.Invoke();
     }
 
     public void Dispose()
@@ -140,6 +148,82 @@ public sealed class AudioEndpointMonitor : IDisposable
         ReleaseVolume();
         _enumerator.UnregisterEndpointNotificationCallback(_notificationClient);
         Marshal.ReleaseComObject(_enumerator);
+    }
+
+    /// <summary>
+    /// Acquires a reference-counted handle to a process-wide <see cref="AudioEndpointMonitor"/>,
+    /// avoiding duplicate Core Audio COM enumerators and callbacks across widgets and dock wheel volume.
+    /// </summary>
+    public static SharedHandle AcquireShared()
+    {
+        lock (SharedLock)
+        {
+            if (_sharedInstance is null || _sharedInstance._disposed)
+            {
+                _sharedInstance = new AudioEndpointMonitor();
+                _sharedRefCount = 0;
+            }
+
+            _sharedRefCount++;
+            return new SharedHandle(_sharedInstance);
+        }
+    }
+
+    private static void ReleaseShared(AudioEndpointMonitor instance)
+    {
+        lock (SharedLock)
+        {
+            if (!ReferenceEquals(_sharedInstance, instance)) return;
+            if (--_sharedRefCount > 0) return;
+            _sharedInstance = null;
+            _sharedRefCount = 0;
+            instance.Dispose();
+        }
+    }
+
+    public sealed class SharedHandle : IDisposable
+    {
+        private readonly AudioEndpointMonitor _owner;
+        private bool _disposed;
+
+        internal SharedHandle(AudioEndpointMonitor owner)
+        {
+            _owner = owner;
+            _owner.VolumeChanged += OnVolumeChanged;
+            _owner.DefaultDeviceChanged += OnDefaultDeviceChanged;
+        }
+
+        public event Action? VolumeChanged;
+        public event Action? DefaultDeviceChanged;
+
+        public string? DeviceName => _disposed ? null : _owner.DeviceName;
+        public bool HasDevice => !_disposed && _owner.HasDevice;
+        public float Volume => _disposed ? 0 : _owner.Volume;
+        public bool Muted => !_disposed && _owner.Muted;
+
+        public bool SetVolume(float level) => !_disposed && _owner.SetVolume(level);
+        public bool ToggleMute() => !_disposed && _owner.ToggleMute();
+
+        public void BindDefaultDevice()
+        {
+            if (_disposed) return;
+            var pending = Interlocked.Read(ref _owner._pendingDeviceGeneration);
+            if (_owner._boundDeviceGeneration == pending) return;
+            _owner._boundDeviceGeneration = pending;
+            _owner.BindDefaultDevice();
+        }
+
+        private void OnVolumeChanged() => VolumeChanged?.Invoke();
+        private void OnDefaultDeviceChanged() => DefaultDeviceChanged?.Invoke();
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _owner.VolumeChanged -= OnVolumeChanged;
+            _owner.DefaultDeviceChanged -= OnDefaultDeviceChanged;
+            ReleaseShared(_owner);
+        }
     }
 
     private sealed class VolumeCallback(AudioEndpointMonitor owner) : IAudioEndpointVolumeCallback

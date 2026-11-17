@@ -3,6 +3,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using OpenTaskbar.Services;
 
@@ -23,6 +25,8 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         AppLog.Initialize();
+        // Software rendering avoids per-process D3D GPU driver heaps (~28 MB) while keeping DWM thumbnails hardware-composited.
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         DispatcherUnhandledException += App_DispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;

@@ -62,6 +62,9 @@ public partial class SettingsWindow : Window
             IsVisibleChanged -= Settings_IsVisibleChanged;
             _preferences.Changed -= Preferences_Changed;
             if (_source is { IsDisposed: false }) _source.RemoveHook(WindowProc);
+            WidgetOptionsList.ItemsSource = null;
+            _widgetOptions.Clear();
+            WeatherCountryBox.ItemsSource = null;
             ThemeManager.SetSurfaceOpacity(_preferences.Current.SurfaceOpacity);
             (Application.Current.MainWindow as MainWindow)?.SetSizePreview(null, null);
         };

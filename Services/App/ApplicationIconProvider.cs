@@ -8,13 +8,20 @@ namespace OpenTaskbar.Services;
 public static class ApplicationIconProvider
 {
     private const uint ShellIcon = 0x00000100;
-    private const int TargetIconResolution = 128;
+    private const int DefaultIconResolution = 64;
 
-    public static BitmapSource? GetForFile(string path)
+    /// <summary>Target icon pixel size matching current dock icon DIP and display DPI.</summary>
+    public static int PreferredIconPixels { get; set; } = DefaultIconResolution;
+
+    public static int ComputeTargetPixels(double iconDip, double dpiScale) =>
+        Math.Max(16, (int)Math.Ceiling(iconDip * Math.Max(1.0, dpiScale)));
+
+    public static BitmapSource? GetForFile(string path, int targetSize = 0)
     {
+        var size = targetSize > 0 ? targetSize : PreferredIconPixels;
         if (string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase))
         {
-            var executableIcon = GetExecutableIcon(path);
+            var executableIcon = GetExecutableIcon(path, 0, size);
             if (executableIcon is not null)
             {
                 return executableIcon;
@@ -22,7 +29,7 @@ public static class ApplicationIconProvider
         }
         else if (File.Exists(path))
         {
-            var directIcon = GetExecutableIcon(path);
+            var directIcon = GetExecutableIcon(path, 0, size);
             if (directIcon is not null)
             {
                 return directIcon;
@@ -46,10 +53,11 @@ public static class ApplicationIconProvider
         }
     }
 
-    public static BitmapSource? GetForResource(string path, int index)
+    public static BitmapSource? GetForResource(string path, int index, int targetSize = 0)
     {
         var expanded = Environment.ExpandEnvironmentVariables(path);
-        return File.Exists(expanded) ? GetExecutableIcon(expanded, index) : null;
+        var size = targetSize > 0 ? targetSize : PreferredIconPixels;
+        return File.Exists(expanded) ? GetExecutableIcon(expanded, index, size) : null;
     }
 
     /// <summary>
@@ -147,14 +155,14 @@ public static class ApplicationIconProvider
     [DllImport("gdi32.dll", EntryPoint = "GetObjectW")]
     private static extern int GetObject(nint handle, int size, ref NativeBitmap bitmap);
 
-    private static BitmapSource? GetExecutableIcon(string path, int index = 0)
+    private static BitmapSource? GetExecutableIcon(string path, int index = 0, int targetSize = DefaultIconResolution)
     {
-        // Primary path: Extract high-resolution icon resource (up to 128x128) for macOS-style large dock display.
+        // Primary path: Extract icon resource at the requested DPI-scaled pixel size.
         var icons = new nint[1];
         var ids = new uint[1];
         try
         {
-            var extracted = PrivateExtractIcons(path, index, TargetIconResolution, TargetIconResolution, icons, ids, 1, 0);
+            var extracted = PrivateExtractIcons(path, index, targetSize, targetSize, icons, ids, 1, 0);
             if (extracted > 0 && icons[0] != 0)
             {
                 try
